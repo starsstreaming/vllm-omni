@@ -805,16 +805,20 @@ class Flux2Pipeline(
         prompt_embeds=None,
         callback_on_step_end_tensor_inputs=None,
     ):
-        if (
-            height is not None
-            and height % (self.vae_scale_factor * 2) != 0
-            or width is not None
-            and width % (self.vae_scale_factor * 2) != 0
-        ):
+        multiple_of = self.vae_scale_factor * 2
+        for name, size in (("height", height), ("width", width)):
+            if size is not None and size < multiple_of:
+                raise ValueError(
+                    f"`{name}` must be at least {multiple_of} to produce a non-empty latent grid, got {size}."
+                )
+
+        height_needs_resize = height is not None and height % multiple_of != 0
+        width_needs_resize = width is not None and width % multiple_of != 0
+        if height_needs_resize or width_needs_resize:
             logger.warning(
                 "`height` and `width` have to be divisible by %s but are %s and %s. "
                 "Dimensions will be resized accordingly",
-                self.vae_scale_factor * 2,
+                multiple_of,
                 height,
                 width,
             )
