@@ -920,8 +920,9 @@ class Flux2Pipeline(
         else:
             image = PIL.Image.open(raw_image) if isinstance(raw_image, str) else cast(PIL.Image.Image, raw_image)
 
-        height = req.sampling_params.height or height
-        width = req.sampling_params.width or width
+        # Preserve explicit zero dimensions so check_inputs can reject them.
+        height = req.sampling_params.height if req.sampling_params.height is not None else height
+        width = req.sampling_params.width if req.sampling_params.width is not None else width
         num_inference_steps = req.sampling_params.num_inference_steps or num_inference_steps
         sigmas = req.sampling_params.sigmas or sigmas
         guidance_scale = (

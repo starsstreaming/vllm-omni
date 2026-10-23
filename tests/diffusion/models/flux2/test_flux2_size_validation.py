@@ -64,7 +64,11 @@ def test_accepts_nonempty_or_default_output_dimensions(pipeline, height, width):
     pipeline.check_inputs(prompt="a landscape", height=height, width=width)
 
 
-def test_forward_rejects_small_output_before_prompt_encoding(pipeline, monkeypatch):
+@pytest.mark.parametrize(
+    ("height", "width", "dimension"),
+    [(16, 1, "width"), (0, 16, "height"), (16, 0, "width")],
+)
+def test_forward_rejects_small_output_before_prompt_encoding(pipeline, monkeypatch, height, width, dimension):
     def unexpected_encode_prompt(**kwargs):
         pytest.fail("Invalid output dimensions must be rejected before prompt encoding")
 
@@ -73,14 +77,54 @@ def test_forward_rejects_small_output_before_prompt_encoding(pipeline, monkeypat
         requests=[
             OmniDiffusionRequest(
                 prompt="a landscape",
-                sampling_params=OmniDiffusionSamplingParams(width=1, height=16, num_inference_steps=4),
+                sampling_params=OmniDiffusionSamplingParams(width=width, height=height, num_inference_steps=4),
                 request_id="invalid-output-size",
             )
         ]
     )
 
-    with pytest.raises(ValueError, match="width.*at least 16"):
+    with pytest.raises(ValueError, match=rf"{dimension}.*at least 16"):
         pipeline.forward(request)
+
+
+@pytest.mark.parametrize("dimension", ["height", "width"])
+def test_dev_forward_does_not_replace_zero_with_fallback_size(dimension):
+    pipe = object.__new__(Flux2Pipeline)
+    pipe.vae_scale_factor = 8
+    dimensions = {"height": 64, "width": 64}
+    dimensions[dimension] = 0
+    request = DiffusionRequestBatch(
+        requests=[
+            OmniDiffusionRequest(
+                prompt="a landscape",
+                sampling_params=OmniDiffusionSamplingParams(**dimensions),
+                request_id="zero-output-with-fallback",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match=rf"{dimension}.*at least 16"):
+        pipe.forward(request, height=64, width=64)
+
+
+@pytest.mark.parametrize("dimension", ["height", "width"])
+def test_dev_forward_validates_fallback_size_when_request_omits_it(dimension):
+    pipe = object.__new__(Flux2Pipeline)
+    pipe.vae_scale_factor = 8
+    dimensions = {"height": 64, "width": 64}
+    dimensions[dimension] = 1
+    request = DiffusionRequestBatch(
+        requests=[
+            OmniDiffusionRequest(
+                prompt="a landscape",
+                sampling_params=OmniDiffusionSamplingParams(height=None, width=None),
+                request_id="omitted-output-with-fallback",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match=rf"{dimension}.*at least 16"):
+        pipe.forward(request, **dimensions)
 
 
 @pytest.mark.parametrize("size", [(15, 64), (64, 15)])
