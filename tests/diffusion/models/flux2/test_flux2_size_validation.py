@@ -127,6 +127,50 @@ def test_dev_forward_validates_fallback_size_when_request_omits_it(dimension):
         pipe.forward(request, **dimensions)
 
 
+class _StopAfterDimensionCaptureError(Exception):
+    pass
+
+
+@pytest.mark.parametrize(
+    ("request_height", "request_width", "fallback_height", "fallback_width", "expected_height", "expected_width"),
+    [
+        (None, None, 64, 96, 64, 96),
+        (None, 333, 64, 96, 64, 333),
+        (205, None, 64, 96, 205, 96),
+        (205, 333, 64, 96, 205, 333),
+        (0, None, 64, 96, 0, 96),
+        (None, 0, 64, 96, 64, 0),
+    ],
+)
+def test_dev_forward_applies_fallback_only_for_none(
+    monkeypatch, request_height, request_width, fallback_height, fallback_width, expected_height, expected_width
+):
+    """Check forwarded values, not just whether validation raises."""
+    pipe = object.__new__(Flux2Pipeline)
+    pipe.vae_scale_factor = 8
+    captured = {}
+
+    def capture_check_inputs(**kwargs):
+        captured.update(kwargs)
+        raise _StopAfterDimensionCaptureError
+
+    monkeypatch.setattr(pipe, "check_inputs", capture_check_inputs)
+    request = DiffusionRequestBatch(
+        requests=[
+            OmniDiffusionRequest(
+                prompt="a landscape",
+                sampling_params=OmniDiffusionSamplingParams(height=request_height, width=request_width),
+                request_id="dimension-resolution",
+            )
+        ]
+    )
+
+    with pytest.raises(_StopAfterDimensionCaptureError):
+        pipe.forward(request, height=fallback_height, width=fallback_width)
+
+    assert (captured["height"], captured["width"]) == (expected_height, expected_width)
+
+
 @pytest.mark.parametrize("size", [(15, 64), (64, 15)])
 def test_rejects_condition_image_with_small_side(image_processor, size):
     with pytest.raises(ValueError, match="Image too small"):
